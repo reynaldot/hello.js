@@ -39,6 +39,80 @@ function formaterror(o){
 	}
 }
 
+// Multipart
+// Construct a multipart message
+
+function Multipart(){
+  // Internal body
+  var body = [],
+    boundary = (Math.random()*1e10).toString(32),
+    counter = 0,
+    line_break = "\r\n",
+    delim = line_break + "--" + boundary,
+    ready = function(){},
+    data_uri = /^data\:([^;,]+(\;charset=[^;,]+)?)(\;base64)?,/i;
+
+  // Add File
+  function addFile(name, value, filename){
+    var fr = new FileReader();
+    fr.onload = function(e){
+      //addContent( e.target.result, value.type );
+      addContent( btoa(e.target.result), value.type + line_break + "Content-Transfer-Encoding: base64", name, filename);
+    };
+    fr.readAsBinaryString(value);
+  }
+
+  // Add content
+  function addContent(name, value, type, filename){
+    var headers = line_break + 'Content-Disposition: form-data; name="' + name + '"';
+
+    headers += filename ? '; filename="' + filename + '"' : '';
+    headers += line_break + 'Content-Type: ' + type;
+    headers += line_break + line_break + value + line_break;
+
+    body.push(headers);
+
+    counter--;
+    ready();
+  }
+
+  // Add new things to the object
+  this.append = function(name, value, filename){
+    counter++;
+
+    // Is this a file?
+    // Files can be either Blobs or File types
+    if(value instanceof window.File || value instanceof window.Blob){
+      // Read the file in
+      addFile(name, value, filename);
+    }
+
+    // Data-URI?
+    // data:[<mime type>][;charset=<charset>][;base64],<encoded data>
+    // /^data\:([^;,]+(\;charset=[^;,]+)?)(\;base64)?,/i
+    else if( typeof( value ) === 'string' && value.match(data_uri) ){
+      addContent(name, value.replace(data_uri,''), 'application/octect-stream' + line_break + "Content-Transfer-Encoding: base64", filename);
+    }
+
+    // Regular string
+    else{
+      addContent(name, value, 'application/json');
+    }
+  };
+
+  this.onready = function(fn){
+    ready = function(){
+      if( counter===0 ){
+        // trigger ready
+        body.unshift('');
+        body.push('--');
+        fn( body.join(delim), boundary);
+        body = [];
+      }
+    };
+    ready();
+  };
+}
 
 //
 // Paging
@@ -111,17 +185,31 @@ hello.init({
 		post : {
 			'me/share' : function(p,callback){
 
-				var data = p.data;
+        var data = p.data;
 				p.data = null;
 
 				// TWEET MEDIA
-				if( data.file ){
-					p.data = {
-						status : data.message,
-						"media[]" : data.file
-					};
-					callback('statuses/update_with_media.json');
-				}
+				if(data.file && typeof(data.file) === 'string') {
+          parts = new Multipart();
+          parts.append('status', data.message);
+          parts.append('media[]', data.file, data.filename);
+
+          parts.onready( function onReady(body, boundary) {
+            p.headers = {
+              'Content-Type' : 'multipart/form-data; boundary="' + boundary + '"'
+            };
+            p.data = body;
+            callback('statuses/update_with_media.json');
+          });
+				} 
+        // Form file
+        else if (data.file) {
+          p.data = {
+            status : data.message,
+            "media[]" : data.file
+          };
+          callback('statuses/update_with_media.json');
+        }
 				// RETWEET?
 				else if( data.id ){
 					callback('statuses/retweet/'+data.id+'.json');
