@@ -162,7 +162,7 @@ hello.init({
 		// Ensure that you define an oauth_proxy
 		oauth : {
 			version : "1.0a",
-			auth	: base + "oauth/authenticate",
+			auth	: base + "oauth/authenticate?force_login=true",
 			request : base + "oauth/request_token",
 			token	: base + "oauth/access_token"
 		},
